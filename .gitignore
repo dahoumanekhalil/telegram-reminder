@@ -1,0 +1,13 @@
+# Secrets
+.env
+
+# Runtime data
+*.db
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Local tooling
+.claude/

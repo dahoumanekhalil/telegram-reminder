@@ -81,9 +81,35 @@ BEFORE_TEMPLATE: str = (
 )
 
 # ---------------------------------------------------------------------------
+# البريد الإلكتروني (SMTP) - اختياري، القيم تُقرأ من ملف .env
+# إن تُرك SMTP_HOST فارغًا يُعطَّل البريد ويعمل البوت على تيليغرام فقط.
+# ---------------------------------------------------------------------------
+SMTP_HOST: str = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT: int = int(os.getenv("SMTP_PORT") or "587")
+SMTP_USER: str = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+# starttls (المنفذ 587) | ssl (المنفذ 465) | none
+SMTP_SECURITY: str = (os.getenv("SMTP_SECURITY") or "starttls").strip().lower()
+EMAIL_FROM: str = (os.getenv("EMAIL_FROM") or SMTP_USER).strip()
+EMAIL_FROM_NAME: str = os.getenv("EMAIL_FROM_NAME") or "تذكير المواعيد"
+
+EMAIL_ENABLED: bool = bool(SMTP_HOST and EMAIL_FROM)
+
+# عناوين الرسائل - نفس المتغيرات المتاحة في نصوص الرسائل أعلاه
+# (نص البريد نفسه هو نفس نص رسالة تيليغرام)
+EMAIL_SUBJECT_ANNOUNCE: str = "📢 موعد جديد: {title} — {weekday} {date}"
+EMAIL_SUBJECT_DAY_BEFORE: str = "🔔 تذكير: غدًا {title} الساعة {time}"
+EMAIL_SUBJECT_MORNING: str = "☀️ اليوم: {title} الساعة {time}"
+EMAIL_SUBJECT_BEFORE: str = "⏳ يبدأ بعد {remaining}: {title}"
+
+# سطر يُضاف في آخر كل بريد (اتركه فارغًا "" لإلغائه)
+EMAIL_FOOTER: str = "—\nوصلتك هذه الرسالة لأنك مسجّل في تذكيرات المواعيد. لإيقافها، رُدّ على هذا البريد."
+
+# ---------------------------------------------------------------------------
 # التخزين
 # ---------------------------------------------------------------------------
-DB_PATH: str = os.path.join(os.path.dirname(__file__), "groups.db")
+# يمكن تغيير المسار عبر متغير البيئة DB_PATH (يُستخدم في Docker)
+DB_PATH: str = os.getenv("DB_PATH") or os.path.join(os.path.dirname(__file__), "groups.db")
 
 # ---------------------------------------------------------------------------
 # السجلات (Logging)

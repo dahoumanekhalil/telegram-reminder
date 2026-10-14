@@ -3,6 +3,7 @@
 - groups: المجموعات التي أُضيف إليها البوت
 - users: الأشخاص الذين بدؤوا محادثة مع البوت (/start) - هم مستقبلو التذكيرات
 - appointments: المواعيد التي يحددها المالك
+- emails: عناوين البريد التي تصلها التذكيرات بالبريد الإلكتروني
 - sent_reminders: التذكيرات التي أُرسلت فعلاً لكل موعد (حتى لا تتكرر بعد إعادة التشغيل)
 كل دالة هنا مستقلة وتفتح/تغلق الاتصال بنفسها (كافٍ لحجم استخدام هذا البوت).
 """
@@ -83,6 +84,11 @@ def init_db() -> None:
                 repeat      TEXT NOT NULL DEFAULT 'none',
                 status      TEXT NOT NULL DEFAULT 'scheduled',
                 created_at  TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS emails (
+                email       TEXT PRIMARY KEY,
+                added_date  TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS sent_reminders (
@@ -198,6 +204,36 @@ def count_users() -> tuple[int, int]:
     with closing(_connect()) as conn:
         rows = dict(conn.execute("SELECT status, COUNT(*) FROM users GROUP BY status").fetchall())
         return rows.get(STATUS_ACTIVE, 0), rows.get(STATUS_INACTIVE, 0)
+
+
+# ---------------------------------------------------------------------------
+# عناوين البريد الإلكتروني
+# ---------------------------------------------------------------------------
+def add_emails(emails: list[str]) -> list[str]:
+    """يضيف العناوين (يُفترض أنها مُنظّفة مسبقًا). يعيد العناوين الجديدة فقط."""
+    now = datetime.now().isoformat(timespec="seconds")
+    added = []
+    with closing(_connect()) as conn:
+        for email in emails:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO emails (email, added_date) VALUES (?, ?)", (email, now)
+            )
+            if cur.rowcount:
+                added.append(email)
+        conn.commit()
+    return added
+
+
+def remove_email(email: str) -> bool:
+    with closing(_connect()) as conn:
+        cur = conn.execute("DELETE FROM emails WHERE email = ?", (email,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def get_emails() -> list[str]:
+    with closing(_connect()) as conn:
+        return [r[0] for r in conn.execute("SELECT email FROM emails ORDER BY added_date, email")]
 
 
 # ---------------------------------------------------------------------------

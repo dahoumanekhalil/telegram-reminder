@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    container_name: reminder-bot
+    # التوكن ومعرّف المالك يُقرآن من ملف .env (لا يُنسخ داخل الصورة)
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

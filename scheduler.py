@@ -67,9 +67,9 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
         if not appointments.is_still_relevant(latest, now):
             continue
 
-        text = appointments.reminder_text(appt, latest.kind, now)
-        success, failed = await broadcast.send_text_to_all(context.bot, text)
-        logger.info("تذكير #%d (%s): نجح %d، فشل %d", appt.id, latest.kind, success, failed)
+        subject, text = appointments.reminder_content(appt, latest.kind, now)
+        report = await broadcast.notify_all(context.bot, subject, text)
+        logger.info("تذكير #%d (%s):\n%s", appt.id, latest.kind, report.summary())
 
         label = appointments.kind_label(latest.kind)
         if latest.kind.startswith(appointments.KIND_BEFORE_PREFIX):
@@ -78,10 +78,7 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             await context.bot.send_message(
                 chat_id=config.OWNER_ID,
-                text=(
-                    f"🔔 أُرسل تذكير «{appt.title}» ({label}): "
-                    f"نجح لـ {success}، فشل لـ {failed}."
-                ),
+                text=f"🔔 أُرسل تذكير «{appt.title}» ({label}):\n{report.summary()}",
             )
         except TelegramError:
             pass

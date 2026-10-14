@@ -1,2 +1,4 @@
 python-telegram-bot[job-queue]==22.8
 python-dotenv==1.0.1
+# بيانات المناطق الزمنية (ضرورية في Docker وعلى Windows)
+tzdata==2026.3

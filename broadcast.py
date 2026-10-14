@@ -1,15 +1,19 @@
 """
 الإرسال الجماعي لكل المستقبِلين (المشتركين في الخاص + المجموعات النشطة).
 مُعاد استخدامه من التذكيرات التلقائية، إعلان المواعيد، والبث اليدوي.
+notify_all ترسل أيضًا نفس النص بالبريد الإلكتروني لكل العناوين المسجّلة.
 """
 import asyncio
 import logging
-from typing import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Awaitable, Callable, Optional
 
 from telegram import Bot
 from telegram.error import ChatMigrated, Forbidden, RetryAfter, TelegramError
 
+import config
 import database as db
+import mailer
 
 logger = logging.getLogger(__name__)
 
@@ -63,3 +67,32 @@ async def copy_to_all(bot: Bot, from_chat_id: int, message_id: int) -> tuple[int
         lambda chat_id: bot.copy_message(chat_id=chat_id, from_chat_id=from_chat_id, message_id=message_id),
         exclude_chat_id=from_chat_id,
     )
+
+
+@dataclass(frozen=True)
+class Report:
+    telegram_sent: int
+    telegram_failed: int
+    email: Optional[mailer.EmailResult]  # None = البريد غير مُفعّل
+
+    def summary(self) -> str:
+        lines = [f"💬 تيليغرام: نجح لـ {self.telegram_sent}، فشل لـ {self.telegram_failed}"]
+        if self.email is not None:
+            lines.append(f"📧 البريد: نجح لـ {self.email.sent}، فشل لـ {self.email.failed}")
+            if self.email.error:
+                lines.append(f"⚠️ مشكلة في البريد: {self.email.error}")
+        return "\n".join(lines)
+
+
+async def notify_all(bot: Bot, subject: str, text: str) -> Report:
+    """
+    يرسل النص لكل المستقبِلين على تيليغرام ولكل العناوين بالبريد، في نفس الوقت
+    (البريد يعمل في thread منفصل أثناء إرسال رسائل تيليغرام).
+    """
+    email_task = None
+    if config.EMAIL_ENABLED:
+        email_task = asyncio.create_task(mailer.send_to_list(db.get_emails(), subject, text))
+
+    telegram_sent, telegram_failed = await send_text_to_all(bot, text)
+    email_result = await email_task if email_task else None
+    return Report(telegram_sent, telegram_failed, email_result)

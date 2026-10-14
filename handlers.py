@@ -2,6 +2,7 @@
 معالجات الأوامر والرسائل:
 - الاشتراك: أي شخص يرسل /start للبوت يصبح مشتركًا وتصله التذكيرات (/stop لإيقافها)
 - المواعيد (للمالك): /add (محادثة خطوة بخطوة) /appointments /delete /announce
+- البريد (للمالك): /add_email /remove_email /emails /test_email
 - تسجيل/إلغاء تسجيل المجموعات تلقائيًا عبر my_chat_member
 - البث اليدوي: أي رسالة (نص/صورة/فيديو/مستند) من المالك في الخاص تُنسخ لكل المستقبِلين
 """
@@ -18,6 +19,7 @@ import appointments
 import broadcast
 import config
 import database as db
+import mailer
 from scheduler import check_reminders, skip_past_reminders
 
 logger = logging.getLogger(__name__)
@@ -168,8 +170,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/list_groups — المجموعات المسجّلة وحالتها\n"
         "/activate <chat_id> — تفعيل مجموعة\n"
         "/deactivate <chat_id> — إيقاف مجموعة\n\n"
+        "📧 البريد الإلكتروني (التذكيرات والإعلانات تُرسل بالبريد أيضًا):\n"
+        "/add_email <عنوان أو عدة عناوين> — إضافة عناوين\n"
+        "/remove_email <عنوان> — حذف عنوان\n"
+        "/emails — قائمة العناوين\n"
+        "/test_email [عنوان] — إرسال بريد تجربة للتأكد من إعدادات SMTP\n\n"
         "📤 للبث اليدوي: أرسل لي نصًا أو صورة أو فيديو أو مستندًا هنا في الخاص، "
-        "وسأرسله لكل المشتركين والمجموعات النشطة."
+        "وسأرسله لكل المشتركين والمجموعات النشطة (على تيليغرام فقط)."
     )
 
 
@@ -396,8 +403,8 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def announce_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     appt = await _appointment_from_args(update, context)
     if appt:
-        success, failed = await broadcast.send_text_to_all(context.bot, appointments.announce_text(appt))
-        await update.message.reply_text(f"📢 تم إعلان «{appt.title}»: نجح لـ {success}، فشل لـ {failed}.")
+        report = await broadcast.notify_all(context.bot, *appointments.announce_content(appt))
+        await update.message.reply_text(f"📢 تم إعلان «{appt.title}»:\n{report.summary()}")
 
 
 @owner_only
@@ -414,8 +421,8 @@ async def appointment_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if action == "announce":
         await query.answer("جارٍ الإعلان...")
         await query.edit_message_reply_markup(None)
-        success, failed = await broadcast.send_text_to_all(context.bot, appointments.announce_text(appt))
-        await query.message.reply_text(f"📢 تم إعلان «{appt.title}»: نجح لـ {success}، فشل لـ {failed}.")
+        report = await broadcast.notify_all(context.bot, *appointments.announce_content(appt))
+        await query.message.reply_text(f"📢 تم إعلان «{appt.title}»:\n{report.summary()}")
     elif action == "delete":
         db.delete_appointment(appt.id)
         await query.answer("تم الحذف")
@@ -432,8 +439,112 @@ async def subscribers_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(
         f"👥 المشتركون النشطون: {active}\n"
         f"🔕 أوقفوا التذكيرات / حظروا البوت: {inactive}\n"
-        f"💬 المجموعات النشطة: {groups}"
+        f"💬 المجموعات النشطة: {groups}\n"
+        f"📧 عناوين البريد: {len(db.get_emails())}"
+        + ("" if config.EMAIL_ENABLED else " (البريد غير مُفعّل — أضف إعدادات SMTP في .env)")
     )
+
+
+# ---------------------------------------------------------------------------
+# عناوين البريد الإلكتروني
+# ---------------------------------------------------------------------------
+def _split_email_args(context: ContextTypes.DEFAULT_TYPE) -> tuple[list[str], list[str]]:
+    """
+    يقسم ما بعد الأمر إلى (عناوين صالحة، نصوص غير صالحة). يقبل عنوانًا واحدًا
+    أو قائمة كاملة ملصوقة (مفصولة بمسافات أو أسطر أو فواصل).
+    """
+    valid, invalid = [], []
+    for raw in " ".join(context.args).replace(",", " ").replace(";", " ").split():
+        email = mailer.normalize_email(raw)
+        if email:
+            if email not in valid:
+                valid.append(email)
+        else:
+            invalid.append(raw)
+    return valid, invalid
+
+
+@owner_only
+async def add_email_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    valid, invalid = _split_email_args(context)
+    if not valid and not invalid:
+        await update.message.reply_text(
+            "أرسل العنوان بعد الأمر، مثلاً:\n"
+            "/add_email ali@gmail.com\n\n"
+            "ويمكنك إضافة عدة عناوين دفعة واحدة (كل عنوان في سطر أو مفصولة بمسافات):\n"
+            "/add_email ali@gmail.com sara@yahoo.com\nkarim@outlook.com"
+        )
+        return
+
+    added = db.add_emails(valid)
+    lines = [f"✅ أُضيف {len(added)} عنوان."]
+    if len(added) < len(valid):
+        lines.append(f"ℹ️ {len(valid) - len(added)} عنوان مسجّل مسبقًا.")
+    if invalid:
+        lines.append("⚠️ عناوين غير صالحة (لم تُضف):\n" + "\n".join(f"   • {x}" for x in invalid[:20]))
+    lines.append(f"📧 المجموع الآن: {len(db.get_emails())}")
+    if not config.EMAIL_ENABLED:
+        lines.append("\n⚠️ البريد غير مُفعّل بعد: أضف إعدادات SMTP في ملف .env ثم أعد تشغيل البوت.")
+    await update.message.reply_text("\n".join(lines))
+
+
+@owner_only
+async def remove_email_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    valid, invalid = _split_email_args(context)
+    if not valid:
+        await update.message.reply_text("أرسل العنوان بعد الأمر، مثلاً: /remove_email ali@gmail.com")
+        return
+
+    removed = [e for e in valid if db.remove_email(e)]
+    not_found = [e for e in valid if e not in removed]
+    lines = [f"🗑 حُذف {len(removed)} عنوان."]
+    if not_found:
+        lines.append("غير موجودة في القائمة:\n" + "\n".join(f"   • {x}" for x in not_found))
+    await update.message.reply_text("\n".join(lines))
+
+
+@owner_only
+async def emails_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    emails = db.get_emails()
+    status = (
+        f"✅ البريد مُفعّل (يُرسل من {config.EMAIL_FROM})"
+        if config.EMAIL_ENABLED
+        else "⚠️ البريد غير مُفعّل: أضف إعدادات SMTP في .env"
+    )
+    if not emails:
+        await update.message.reply_text(f"{status}\n\nلا توجد عناوين بعد. أضف بـ /add_email")
+        return
+
+    text = f"{status}\n\n📧 العناوين ({len(emails)}):\n" + "\n".join(emails)
+    if len(text) <= 4000:
+        await update.message.reply_text(text)
+    else:
+        # قائمة طويلة: تُرسل كملف نصي بدل رسالة
+        await update.message.reply_document(
+            document="\n".join(emails).encode("utf-8"),
+            filename="emails.txt",
+            caption=f"{status}\n📧 {len(emails)} عنوان",
+        )
+
+
+@owner_only
+async def test_email_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not config.EMAIL_ENABLED:
+        await update.message.reply_text(
+            "⚠️ البريد غير مُفعّل. أضف في ملف .env:\n"
+            "SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD\n"
+            "ثم أعد تشغيل البوت."
+        )
+        return
+
+    valid, _ = _split_email_args(context)
+    to = valid[0] if valid else config.EMAIL_FROM
+    await update.message.reply_text(f"⏳ جارٍ إرسال بريد تجربة إلى {to} ...")
+    error = await mailer.send_test(to)
+    if error:
+        await update.message.reply_text(f"❌ فشل الإرسال:\n{error}")
+    else:
+        await update.message.reply_text(f"✅ تم الإرسال إلى {to}. تحقق من البريد الوارد (وأيضًا مجلد Spam).")
 
 
 @owner_only

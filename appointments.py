@@ -210,18 +210,23 @@ def _fill(template: str, appt: Appointment, **extra) -> str:
     )
 
 
-def announce_text(appt: Appointment) -> str:
-    return _fill(config.ANNOUNCE_TEMPLATE, appt)
+def announce_content(appt: Appointment) -> tuple[str, str]:
+    """(عنوان البريد، نص الرسالة) لإعلان موعد."""
+    return _fill(config.EMAIL_SUBJECT_ANNOUNCE, appt), _fill(config.ANNOUNCE_TEMPLATE, appt)
 
 
-def reminder_text(appt: Appointment, kind: str, now: datetime) -> str:
+def reminder_content(appt: Appointment, kind: str, now: datetime) -> tuple[str, str]:
+    """(عنوان البريد، نص الرسالة) لتذكير من نوع kind."""
     if kind == KIND_DAY_BEFORE:
-        return _fill(config.DAY_BEFORE_TEMPLATE, appt)
+        return _fill(config.EMAIL_SUBJECT_DAY_BEFORE, appt), _fill(config.DAY_BEFORE_TEMPLATE, appt)
     if kind == KIND_MORNING:
-        return _fill(config.MORNING_TEMPLATE, appt)
+        return _fill(config.EMAIL_SUBJECT_MORNING, appt), _fill(config.MORNING_TEMPLATE, appt)
     # الوقت المتبقي يُحسب لحظة الإرسال، حتى يبقى صحيحًا لو تأخر الإرسال
-    remaining = math.ceil((appt.starts_at - now).total_seconds() / 60)
-    return _fill(config.BEFORE_TEMPLATE, appt, remaining=minutes_to_text(max(remaining, 1)))
+    remaining = minutes_to_text(max(math.ceil((appt.starts_at - now).total_seconds() / 60), 1))
+    return (
+        _fill(config.EMAIL_SUBJECT_BEFORE, appt, remaining=remaining),
+        _fill(config.BEFORE_TEMPLATE, appt, remaining=remaining),
+    )
 
 
 def kind_label(kind: str) -> str:

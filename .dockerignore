@@ -1,0 +1,7 @@
+.env
+*.db
+data/
+bot.log
+__pycache__/
+.claude/
+run_bot.bat

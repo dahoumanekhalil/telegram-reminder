@@ -10,7 +10,14 @@ import logging
 from datetime import datetime
 from functools import wraps
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram import (
+    BotCommand,
+    BotCommandScopeChat,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardRemove,
+    Update,
+)
 from telegram.constants import ChatMemberStatus, ChatType
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes, ConversationHandler
@@ -28,6 +35,27 @@ logger = logging.getLogger(__name__)
 MEMBER_STATUSES = {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR}
 # حالات العضوية التي تعني أن البوت خرج من المجموعة (طرد أو مغادرة) أو حُظر في الخاص
 LEFT_STATUSES = {ChatMemberStatus.LEFT, ChatMemberStatus.BANNED}
+
+# قوائم الأوامر التي تظهر في زر القائمة (/) داخل تيليغرام
+USER_COMMANDS = [
+    BotCommand("upcoming", "المواعيد القادمة"),
+    BotCommand("start", "تفعيل التذكيرات"),
+    BotCommand("stop", "إيقاف التذكيرات"),
+]
+
+OWNER_COMMANDS = [
+    BotCommand("add", "إضافة موعد جديد"),
+    BotCommand("appointments", "المواعيد القادمة وتذكيراتها"),
+    BotCommand("announce", "إعلان موعد الآن: /announce رقم"),
+    BotCommand("delete", "حذف موعد: /delete رقم"),
+    BotCommand("subscribers", "عدد المشتركين"),
+    BotCommand("add_email", "إضافة عنوان بريد (أو عدة عناوين)"),
+    BotCommand("emails", "قائمة عناوين البريد"),
+    BotCommand("remove_email", "حذف عنوان بريد"),
+    BotCommand("test_email", "إرسال بريد تجربة"),
+    BotCommand("list_groups", "المجموعات المسجّلة"),
+    BotCommand("help", "كل الأوامر"),
+]
 
 # كم موعدًا يُعرض في القوائم كحد أقصى (لتجنّب تجاوز طول رسالة تيليغرام)
 MAX_LISTED = 25
@@ -109,6 +137,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     db.upsert_user(user.id, user.first_name or str(user.id), user.username)
 
     if is_owner(update):
+        # قائمة أوامر المالك لا يمكن ضبطها قبل أن يبدأ المحادثة مع البوت، لذلك نضبطها هنا أيضًا
+        try:
+            await context.bot.set_my_commands(OWNER_COMMANDS, scope=BotCommandScopeChat(config.OWNER_ID))
+        except TelegramError as e:
+            logger.warning("تعذّر ضبط قائمة أوامر المالك: %s", e)
         await update.message.reply_text(
             "أهلاً! أنا بوت التذكير بالمواعيد.\n"
             "أضف موعدًا بـ /add وسأذكّر الجميع به تلقائيًا.\n\n"

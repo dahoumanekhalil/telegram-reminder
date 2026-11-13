@@ -5,7 +5,7 @@
 import logging
 import warnings
 
-from telegram import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, Update
+from telegram import BotCommandScopeChat, BotCommandScopeDefault, Update
 from telegram.error import TelegramError
 from telegram.warnings import PTBUserWarning
 from telegram.ext import (
@@ -33,38 +33,17 @@ logger = logging.getLogger(__name__)
 # تحذير غير مهم هنا: المحادثة تُتابَع لكل مستخدم (المالك فقط) وليس لكل رسالة، وهذا ما نريده
 warnings.filterwarnings("ignore", message=r".*CallbackQueryHandler.*", category=PTBUserWarning)
 
-USER_COMMANDS = [
-    BotCommand("upcoming", "المواعيد القادمة"),
-    BotCommand("start", "تفعيل التذكيرات"),
-    BotCommand("stop", "إيقاف التذكيرات"),
-]
-
-OWNER_COMMANDS = [
-    BotCommand("add", "إضافة موعد جديد"),
-    BotCommand("appointments", "المواعيد القادمة وتذكيراتها"),
-    BotCommand("announce", "إعلان موعد الآن: /announce رقم"),
-    BotCommand("delete", "حذف موعد: /delete رقم"),
-    BotCommand("subscribers", "عدد المشتركين"),
-    BotCommand("add_email", "إضافة عنوان بريد (أو عدة عناوين)"),
-    BotCommand("emails", "قائمة عناوين البريد"),
-    BotCommand("remove_email", "حذف عنوان بريد"),
-    BotCommand("test_email", "إرسال بريد تجربة"),
-    BotCommand("list_groups", "المجموعات المسجّلة"),
-    BotCommand("help", "كل الأوامر"),
-]
-
-
 async def on_startup(application: Application) -> None:
     """يُنفَّذ مرة عند إقلاع البوت: تهيئة قاعدة البيانات، الجدولة، وقائمة الأوامر."""
     db.init_db()
     schedule_reminder_checks(application.job_queue)
 
-    await application.bot.set_my_commands(USER_COMMANDS, scope=BotCommandScopeDefault())
+    await application.bot.set_my_commands(handlers.USER_COMMANDS, scope=BotCommandScopeDefault())
     try:
-        await application.bot.set_my_commands(OWNER_COMMANDS, scope=BotCommandScopeChat(config.OWNER_ID))
+        await application.bot.set_my_commands(handlers.OWNER_COMMANDS, scope=BotCommandScopeChat(config.OWNER_ID))
     except TelegramError as e:
-        # يحدث إن لم يبدأ المالك محادثة مع البوت بعد - أرسل /start ثم أعد التشغيل
-        logger.warning("تعذّر ضبط قائمة أوامر المالك: %s", e)
+        # يحدث إن لم يبدأ المالك محادثة مع البوت بعد - تُضبط تلقائيًا عندما يرسل /start
+        logger.warning("تعذّر ضبط قائمة أوامر المالك (ستُضبط عند إرسال /start): %s", e)
 
     if config.EMAIL_ENABLED:
         logger.info("البريد مُفعّل: %s عبر %s:%d", config.EMAIL_FROM, config.SMTP_HOST, config.SMTP_PORT)

@@ -90,7 +90,9 @@ SMTP_USER: str = os.getenv("SMTP_USER", "").strip()
 SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
 # starttls (المنفذ 587) | ssl (المنفذ 465) | none
 SMTP_SECURITY: str = (os.getenv("SMTP_SECURITY") or "starttls").strip().lower()
-EMAIL_FROM: str = (os.getenv("EMAIL_FROM") or SMTP_USER).strip()
+EMAIL_FROM: str = (os.getenv("EMAIL_FROM") or "").strip()
+if "@" not in EMAIL_FROM:  # فارغ أو كُتب فيه اسم بالخطأ بدل عنوان: نستعمل بريد الحساب
+    EMAIL_FROM = SMTP_USER
 EMAIL_FROM_NAME: str = os.getenv("EMAIL_FROM_NAME") or "تذكير المواعيد"
 
 EMAIL_ENABLED: bool = bool(SMTP_HOST and EMAIL_FROM)
